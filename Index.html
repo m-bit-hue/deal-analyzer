@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deal Analyzer Pro</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Maps (for map + street view only) -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyADs_lBteTivKoG-1nKBYKlzUmsl_SrCCg"></script>
+</head>
+
+<body class="p-4 max-w-md mx-auto bg-gray-50">
+
+<h1 class="text-2xl font-bold mb-4">📱 Deal Analyzer Pro</h1>
+
+<!-- ADDRESS -->
+<input id="address" placeholder="Enter full address"
+  class="border p-3 w-full mb-2 rounded"/>
+
+<button onclick="fetchData()"
+  class="bg-blue-600 text-white p-3 w-full mb-4 rounded">
+  Fetch Property Data
+</button>
+
+<!-- INPUTS -->
+<input id="purchase" placeholder="Purchase Price"
+  class="border p-3 w-full mb-2 rounded"/>
+
+<input id="sqft" placeholder="Square Feet"
+  class="border p-3 w-full mb-2 rounded"/>
+
+<input id="costpsf" placeholder="Renovation Cost per Sq Ft"
+  class="border p-3 w-full mb-2 rounded"/>
+
+<input id="interest" placeholder="Interest Rate % (default 8)"
+  class="border p-3 w-full mb-2 rounded"/>
+
+<button onclick="calculate()"
+  class="bg-green-600 text-white p-3 w-full rounded">
+  Analyze Deal
+</button>
+
+<!-- RESULTS -->
+<div id="results" class="mt-4 p-3 bg-white rounded shadow"></div>
+
+<!-- MAPS -->
+<div id="map" class="mt-4 rounded" style="height:200px;"></div>
+<div id="street" class="mt-2 rounded" style="height:200px;"></div>
+
+<script>
+let arv = 0;
+let rent = 0;
+let listPrice = 0;
+let lat = 40.7128;
+let lng = -74.0060;
+
+const RENTCAST_KEY = "c36b185b6b37410a8e54eb2aef1addee";
+
+/* ---------------- MAP ---------------- */
+function loadMap() {
+  const map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat, lng },
+    zoom: 15
+  });
+
+  new google.maps.Marker({
+    position: { lat, lng },
+    map
+  });
+
+  new google.maps.StreetViewPanorama(
+    document.getElementById("street"),
+    {
+      position: { lat, lng },
+      pov: { heading: 165, pitch: 0 }
+    }
+  );
+}
+
+/* ---------------- GEO (simple fallback) ---------------- */
+async function geocode(address) {
+  try {
+    const res = await fetch(
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=AIzaSyADs_lBteTivKoG-1nKBYKlzUmsl_SrCCg`
+    );
+
+    const data = await res.json();
+
+    if (data.results && data.results.length > 0) {
+      lat = data.results[0].geometry.location.lat;
+      lng = data.results[0].geometry.location.lng;
+    }
+  } catch (e) {
+    console.log("Geocode failed", e);
+  }
+}
+
+/* ---------------- FETCH RENTCAST ---------------- */
+async function fetchData() {
+  const address = document.getElementById('address').value;
+
+  if (!address) {
+    alert("Enter address");
+    return;
+  }
+
+  try {
+    // AVM (value + sometimes sqft + list price)
+    const res = await fetch(
+      `https://api.rentcast.io/v1/avm?address=${encodeURIComponent(address)}`,
+      { headers: { "X-Api-Key": RENTCAST_KEY } }
+    );
+
+    const data = await res.json();
+
+    arv = data?.price || 0;
+    listPrice = data?.listingPrice || 0;
+
+    if (data?.squareFootage) {
+      document.getElementById("sqft").value = data.squareFootage;
+    }
+
+    // Rent estimate
+    const rentRes = await fetch(
+      `https://api.rentcast.io/v1/rent-estimate?address=${encodeURIComponent(address)}`,
+      { headers: { "X-Api-Key": RENTCAST_KEY } }
+    );
+
+    const rentData = await rentRes.json();
+    rent = rentData?.rent || 0;
+
+    await geocode(address);
+    loadMap();
+
+    alert("✅ Data Loaded");
+
+  } catch (err) {
+    console.error(err);
+    alert("API error");
+  }
+}
+
+/* ---------------- CALCULATE DEAL ---------------- */
+function calculate() {
+  const purchase = Number(document.getElementById('purchase').value || 0);
+  const sqft = Number(document.getElementById('sqft').value || 0);
+  const costpsf = Number(document.getElementById('costpsf').value || 0);
+  const interest = Number(document.getElementById('interest').value || 8);
+
+  const hard = sqft * costpsf;
+  const soft = hard * 0.12;
+  const closing = purchase * 0.03;
+
+  // Carry (auto)
+  const loan = purchase * 0.8;
+  const monthlyInterest = (loan * (interest / 100)) / 12;
+  const taxes = purchase * 0.012 / 12;
+  const insurance = 200;
+
+  const monthlyCarry = monthlyInterest + taxes + insurance;
+  const carryTotal = monthlyCarry * 8;
+
+  const allIn = purchase + hard + soft + closing + carryTotal;
+  const profit = arv - allIn;
+
+  document.getElementById("results").innerHTML = `
+    <div><strong>ARV:</strong> $${arv.toLocaleString()}</div>
+    <div><strong>List Price:</strong> $${listPrice.toLocaleString()}</div>
+    <div><strong>Rent:</strong> $${rent.toLocaleString()}</div>
+
+    <hr class="my-2"/>
+
+    <div><strong>Monthly Carry:</strong> $${monthlyCarry.toFixed(0)}</div>
+    <div><strong>All-In Cost:</strong> $${allIn.toLocaleString()}</div>
+
+    <div style="color:${profit >= 0 ? 'green' : 'red'}; font-weight:bold;">
+      Profit: $${profit.toLocaleString()}
+    </div>
+  `;
+}
+</script>
+
+</body>
+</html>
