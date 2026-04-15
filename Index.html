@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Deal Analyzer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="p-4 max-w-md mx-auto bg-gray-50">
+  <h1 class="text-2xl font-bold mb-4">Deal Analyzer</h1>
+
+  <input id="address" placeholder="Enter full address"
+    class="border p-3 w-full mb-2 rounded bg-white" />
+
+  <button onclick="fetchData()"
+    class="bg-blue-600 text-white p-3 w-full mb-4 rounded">
+    Fetch Property Data
+  </button>
+
+  <input id="purchase" placeholder="Purchase Price"
+    class="border p-3 w-full mb-2 rounded bg-white" />
+
+  <input id="sqft" placeholder="Square Feet"
+    class="border p-3 w-full mb-2 rounded bg-white" />
+
+  <input id="costpsf" placeholder="Renovation Cost per Sq Ft"
+    class="border p-3 w-full mb-2 rounded bg-white" />
+
+  <input id="interest" placeholder="Interest Rate % (default 8)"
+    class="border p-3 w-full mb-2 rounded bg-white" />
+
+  <input id="months" placeholder="Project Months (default 8)"
+    class="border p-3 w-full mb-2 rounded bg-white" />
+
+  <button onclick="calculate()"
+    class="bg-green-600 text-white p-3 w-full rounded">
+    Analyze Deal
+  </button>
+
+  <div id="status" class="mt-3 text-sm text-gray-600"></div>
+  <div id="results" class="mt-4 p-4 bg-white rounded shadow"></div>
+
+<script>
+let arv = 0;
+let rent = 0;
+let listPrice = 0;
+
+const RENTCAST_KEY = "c36b185b6b37410a8e54eb2aef1addee";
+
+function setStatus(msg) {
+  document.getElementById("status").textContent = msg;
+}
+
+async function fetchData() {
+  const address = document.getElementById("address").value.trim();
+
+  if (!address) {
+    alert("Enter an address first");
+    return;
+  }
+
+  setStatus("Loading property data...");
+
+  try {
+    const avmRes = await fetch(
+      `https://api.rentcast.io/v1/avm?address=${encodeURIComponent(address)}`,
+      {
+        headers: {
+          "X-Api-Key": RENTCAST_KEY
+        }
+      }
+    );
+
+    const avmData = await avmRes.json();
+    console.log("AVM response:", avmData);
+
+    arv = avmData?.price || 0;
+    listPrice = avmData?.listingPrice || 0;
+
+    if (avmData?.squareFootage) {
+      document.getElementById("sqft").value = avmData.squareFootage;
+    }
+
+    const rentRes = await fetch(
+      `https://api.rentcast.io/v1/rent-estimate?address=${encodeURIComponent(address)}`,
+      {
+        headers: {
+          "X-Api-Key": RENTCAST_KEY
+        }
+      }
+    );
+
+    const rentData = await rentRes.json();
+    console.log("Rent response:", rentData);
+
+    rent = rentData?.rent || 0;
+
+    setStatus("Property data loaded.");
+  } catch (err) {
+    console.error(err);
+    setStatus("API request failed.");
+    alert("Could not load property data.");
+  }
+}
+
+function calculate() {
+  const purchase = Number(document.getElementById("purchase").value || 0);
+  const sqft = Number(document.getElementById("sqft").value || 0);
+  const costpsf = Number(document.getElementById("costpsf").value || 0);
+  const interest = Number(document.getElementById("interest").value || 8);
+  const months = Number(document.getElementById("months").value || 8);
+
+  const hard = sqft * costpsf;
+  const soft = hard * 0.12;
+  const closing = purchase * 0.03;
+
+  const loan = purchase * 0.8;
+  const monthlyInterest = (loan * (interest / 100)) / 12;
+  const taxes = purchase * 0.012 / 12;
+  const insurance = 200;
+
+  const monthlyCarry = monthlyInterest + taxes + insurance;
+  const carryTotal = monthlyCarry * months;
+
+  const allIn = purchase + hard + soft + closing + carryTotal;
+  const profit = arv - allIn;
+  const spreadToList = listPrice ? purchase - listPrice : 0;
+  const spreadToArv = arv ? arv - purchase : 0;
+
+  document.getElementById("results").innerHTML = `
+    <div class="space-y-2 text-sm">
+      <div><strong>ARV:</strong> $${arv.toLocaleString()}</div>
+      <div><strong>List Price:</strong> $${listPrice.toLocaleString()}</div>
+      <div><strong>Rent Estimate:</strong> $${rent.toLocaleString()}</div>
+      <hr class="my-2">
+      <div><strong>Hard Costs:</strong> $${hard.toLocaleString()}</div>
+      <div><strong>Soft Costs:</strong> $${soft.toLocaleString()}</div>
+      <div><strong>Closing Costs:</strong> $${closing.toLocaleString()}</div>
+      <div><strong>Monthly Carry:</strong> $${monthlyCarry.toFixed(0)}</div>
+      <div><strong>Total Carry:</strong> $${carryTotal.toLocaleString()}</div>
+      <div><strong>All-In Cost:</strong> $${allIn.toLocaleString()}</div>
+      <hr class="my-2">
+      <div><strong>Purchase vs List:</strong> ${listPrice ? "$" + spreadToList.toLocaleString() : "N/A"}</div>
+      <div><strong>Purchase to ARV Spread:</strong> ${arv ? "$" + spreadToArv.toLocaleString() : "N/A"}</div>
+      <div style="color:${profit >= 0 ? "green" : "red"}; font-weight:700;">
+        Profit: $${profit.toLocaleString()}
+      </div>
+    </div>
+  `;
+}
+</script>
+</body>
+</html>
